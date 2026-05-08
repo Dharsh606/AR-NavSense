@@ -1,0 +1,58 @@
+name: Android APK Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release-apk:
+    name: Build and publish APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze project
+        run: flutter analyze --no-fatal-infos
+
+      - name: Build Android APK
+        run: flutter build apk --debug --target-platform android-arm,android-arm64 --dart-define=OPENROUTE_API_KEY=demo
+
+      - name: Prepare release artifact
+        run: |
+          mkdir -p release
+          cp build/app/outputs/flutter-apk/app-debug.apk "release/AR-NavSense-${GITHUB_REF_NAME}.apk"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AR-NavSense ${GITHUB_REF_NAME}"
+          body: |
+            AR-NavSense Android APK release.
+
+            Highlights:
+            - Hey AR voice wake mode
+            - Screen auto-read accessibility guidance
+            - Emergency SOS setup wizard
+            - Premium native Flutter Android experience
+          files: release/AR-NavSense-${{ github.ref_name }}.apk

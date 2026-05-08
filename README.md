@@ -8,9 +8,13 @@ The app is built as a real native-feeling Android application, not a WebView, we
 
 ## Download APK
 
-The latest Android APK is intended to be published from the **GitHub Releases** section of this repository.
+The latest Android APK is published from the **GitHub Releases** section of this repository.
 
-After a release is available, open:
+Direct download:
+
+[Download AR-NavSense v1.0.4 APK](https://github.com/Dharsh606/AR-NavSense/releases/latest/download/AR-NavSense-v1.0.4.apk)
+
+You can also open:
 
 `Releases -> Latest -> Assets -> AR-NavSense APK`
 
