@@ -12,7 +12,7 @@ The latest Android APK is published from the **GitHub Releases** section of this
 
 Direct download:
 
-[Download AR-NavSense v1.0.4 APK](https://github.com/Dharsh606/AR-NavSense/releases/download/v1.0.4/app-debug.apk)
+[Download AR-NavSense v1.0.5 APK](https://github.com/Dharsh606/AR-NavSense/releases/download/v1.0.4/app-debug.apk)
 
 You can also open:
 
