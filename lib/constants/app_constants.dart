@@ -2,7 +2,7 @@ class AppConstants {
   // App Information
   static const String appName = 'AR-NavSense';
   static const String tagline = 'Sense the Path. Navigate the World.';
-  static const String version = '1.0.4 Wake Voice SOS Wizard';
+  static const String version = '1.0.5 Live Walking Guidance';
 
   // Navigation Routes
   static const String splashRoute = '/splash';

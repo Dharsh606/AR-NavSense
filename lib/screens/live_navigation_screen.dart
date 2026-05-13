@@ -27,6 +27,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
   final _navigationApi = NavigationApiService();
   final _voice = VoiceService();
   final _searchController = TextEditingController();
+  final _distance = const Distance();
 
   StreamSubscription? _positionSub;
   LatLng? _current;
@@ -34,6 +35,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
   NavigationRoute? _route;
   List<PlaceSuggestion> _suggestions = [];
   bool _loading = true;
+  bool _destinationArrivalSpoken = false;
+  int _activeStepIndex = 0;
+  String? _lastSpokenInstruction;
   String? _status;
 
   @override
@@ -53,8 +57,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
       });
       _positionSub = _locationService.positionStream().listen((position) {
         final next = LatLng(position.latitude, position.longitude);
-        setState(() => _current = next);
-        _mapController.move(next, _mapController.camera.zoom);
+        _handlePositionUpdate(next);
       });
       if (_destination != null) {
         await _startRoute(_destination!);
@@ -71,26 +74,50 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
 
   Future<void> _search(String query) async {
     if (query.trim().length < 3) return;
-    setState(() => _status = 'Searching OpenStreetMap...');
+    setState(() {
+      _loading = true;
+      _status = 'Searching destination and preparing walking route...';
+    });
     try {
+      await _ensureCurrentPosition();
       final places = await _navigationApi.searchPlaces(query);
+      if (places.isEmpty) {
+        setState(() {
+          _loading = false;
+          _suggestions = [];
+          _status = 'No places found.';
+        });
+        await _voice.speak('I could not find that destination. Please try a clearer place name.');
+        return;
+      }
       setState(() {
         _suggestions = places;
-        _status = places.isEmpty ? 'No places found.' : null;
       });
+      await _startRoute(places.first);
     } catch (error) {
-      setState(() => _status = error.toString());
+      setState(() {
+        _loading = false;
+        _status = error.toString();
+      });
+      await _voice.speak('I could not start navigation. ${error.toString()}');
     }
   }
 
   Future<void> _startRoute(PlaceSuggestion destination) async {
+    await _ensureCurrentPosition();
     final current = _current;
-    if (current == null) return;
+    if (current == null) {
+      await _voice.speak('I could not detect your current location.');
+      return;
+    }
     setState(() {
       _loading = true;
       _destination = destination;
       _suggestions = [];
       _status = 'Generating real walking route...';
+      _activeStepIndex = 0;
+      _destinationArrivalSpoken = false;
+      _lastSpokenInstruction = null;
     });
     try {
       final route = await _navigationApi.walkingRoute(
@@ -102,8 +129,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
       setState(() {
         _route = route;
         _loading = false;
-        _status = null;
+        _status = 'Walking journey started. Voice guidance is active.';
       });
+      _fitRouteToMap(route);
       if (route.points.isNotEmpty) {
         final firstStep = route.steps.isNotEmpty
             ? route.steps.first.instruction
@@ -111,6 +139,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
         await _voice.speak(
           'Route ready to ${destination.name}. ${_formatDistance(route.distanceMeters)}, about ${_formatDuration(route.durationSeconds)}. $firstStep',
         );
+        _lastSpokenInstruction = firstStep;
       }
     } catch (error) {
       setState(() {
@@ -119,6 +148,85 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
       });
       await _voice.speak('I could not create the route. ${error.toString()}');
     }
+  }
+
+  Future<void> _ensureCurrentPosition() async {
+    if (_current != null) return;
+    final position = await _locationService.currentPosition();
+    final next = LatLng(position.latitude, position.longitude);
+    setState(() => _current = next);
+    _mapController.move(next, 16);
+  }
+
+  void _handlePositionUpdate(LatLng next) {
+    setState(() => _current = next);
+    _mapController.move(next, _mapController.camera.zoom);
+    _maybeSpeakRouteGuidance(next);
+  }
+
+  void _maybeSpeakRouteGuidance(LatLng current) {
+    final route = _route;
+    final destination = _destination;
+    if (route == null || destination == null || route.points.isEmpty) return;
+
+    final destinationDistance = _distance(
+      current,
+      LatLng(destination.latitude, destination.longitude),
+    );
+    if (destinationDistance <= 25 && !_destinationArrivalSpoken) {
+      _destinationArrivalSpoken = true;
+      _voice.speak('You have arrived near ${destination.name}.');
+      return;
+    }
+
+    if (route.steps.isEmpty || _activeStepIndex >= route.steps.length) return;
+
+    final nearestIndex = _nearestRoutePointIndex(current, route.points);
+    final currentStep = route.steps[_activeStepIndex];
+    final endIndex = currentStep.endPointIndex;
+    if (endIndex == null || nearestIndex < endIndex - 3) return;
+
+    final nextIndex = _activeStepIndex + 1;
+    if (nextIndex >= route.steps.length) return;
+
+    _activeStepIndex = nextIndex;
+    final nextInstruction = route.steps[nextIndex].instruction;
+    if (nextInstruction == _lastSpokenInstruction) return;
+    _lastSpokenInstruction = nextInstruction;
+    _voice.speak(nextInstruction);
+    if (mounted) {
+      setState(() => _status = 'Next guidance: $nextInstruction');
+    }
+  }
+
+  int _nearestRoutePointIndex(LatLng current, List<RoutePoint> points) {
+    var bestIndex = 0;
+    var bestDistance = double.infinity;
+    for (var i = 0; i < points.length; i++) {
+      final point = LatLng(points[i].latitude, points[i].longitude);
+      final distance = _distance(current, point);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
+  }
+
+  void _fitRouteToMap(NavigationRoute route) {
+    if (route.points.isEmpty) return;
+    final points = route.points
+        .map((point) => LatLng(point.latitude, point.longitude))
+        .toList();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: LatLngBounds.fromPoints(points),
+          padding: const EdgeInsets.fromLTRB(48, 120, 48, 260),
+        ),
+      );
+    });
   }
 
   @override
@@ -246,9 +354,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> {
                   status: _status,
                   destination: _destination,
                   route: _route,
+                  activeStepIndex: _activeStepIndex,
                   onSpeakNext: () {
-                    final step = _route?.steps.isNotEmpty == true
-                        ? _route!.steps.first.instruction
+                    final steps = _route?.steps;
+                    final index = steps == null || steps.isEmpty
+                        ? 0
+                        : _activeStepIndex.clamp(0, steps.length - 1).toInt();
+                    final step = steps != null && steps.isNotEmpty
+                        ? steps[index].instruction
                         : 'No route step is available yet.';
                     _voice.speak(step);
                   },
@@ -274,6 +387,7 @@ class _NavigationSheet extends StatelessWidget {
   final String? status;
   final PlaceSuggestion? destination;
   final NavigationRoute? route;
+  final int activeStepIndex;
   final VoidCallback onSpeakNext;
 
   const _NavigationSheet({
@@ -281,6 +395,7 @@ class _NavigationSheet extends StatelessWidget {
     required this.status,
     required this.destination,
     required this.route,
+    required this.activeStepIndex,
     required this.onSpeakNext,
   });
 
@@ -326,7 +441,7 @@ class _NavigationSheet extends StatelessWidget {
           if (route?.steps.isNotEmpty == true) ...[
             const SizedBox(height: 14),
             Text(
-              route!.steps.first.instruction,
+              route!.steps[activeStepIndex.clamp(0, route!.steps.length - 1).toInt()].instruction,
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     color: AppTheme.textPrimary,
                     fontWeight: FontWeight.w700,

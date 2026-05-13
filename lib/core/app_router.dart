@@ -330,25 +330,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   Widget build(BuildContext context) {
     _syncScreenAccessibility();
+    final location = GoRouter.of(context).routeInformationProvider.value.uri.toString();
+    final showVoiceBanner = location.contains(AppConstants.homeRoute);
     return Scaffold(
       body: Stack(
         children: [
           widget.child,
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 108,
-            child: _VoiceListeningBanner(
-              ready: _voiceReady,
-              status: _voiceStatus,
-              onHelp: () => _handleVoiceCommand(
-                const VoiceCommandResult(
-                  spokenReply:
-                      'Say Hey AR to wake me. Then say open home, open navigation, open devices, open assistant, open camera, open settings, emergency, or navigate to followed by a place name.',
+          if (showVoiceBanner)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 108,
+              child: _VoiceListeningBanner(
+                ready: _voiceReady,
+                status: _voiceStatus,
+                onHelp: () => _handleVoiceCommand(
+                  const VoiceCommandResult(
+                    spokenReply:
+                        'Say Hey AR to wake me. Then say open home, open navigation, open devices, open assistant, open camera, open settings, emergency, or navigate to followed by a place name.',
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
       bottomNavigationBar: GlassmorphicBottomNavigation(
